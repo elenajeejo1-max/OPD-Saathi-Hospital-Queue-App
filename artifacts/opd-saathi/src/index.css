@@ -363,13 +363,16 @@ h3 { font-size: 18px; color: #1d3b4c; margin-bottom: 7px; }
 .btn-row { display: flex; flex-wrap: wrap; gap: 10px; }
 .field { display: grid; gap: 7px; margin: 14px 0; }
 .field label { font-size: 15px; font-weight: 750; color: #294a5c; }
-.field input,.field select { width: 100%; min-height: 50px; border: 1px solid #bdcfd5; border-radius: 12px; padding: 11px 13px; background: #fff; color: #19384c; }
+.field input,.field select,.field textarea { width: 100%; min-height: 50px; border: 1px solid #bdcfd5; border-radius: 12px; padding: 11px 13px; background: #fff; color: #19384c; font: inherit; }
+.field textarea { resize: vertical; }
+.field input:focus-visible,.field select:focus-visible,.field textarea:focus-visible,.btn:focus-visible { outline: 3px solid #17818a; outline-offset: 2px; }
 .field small,.muted { color: #5b707b; line-height: 1.5; }
 .tag { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #bdd8d6; background: #eef8f7; color: #145b61; padding: 6px 10px; border-radius: 999px; font-weight: 750; font-size: 13px; }
 .tag.waiting { background: #fff6df; border-color: #ebd39a; color: #715313; }
 .tag.called { background: #eaf1ff; border-color: #c9d7f4; color: #294d86; }
 .tag.served { background: #edf6ef; border-color: #c6e0cc; color: #316442; }
 .tag.no-show { background: #f5eff0; border-color: #dfcdd1; color: #6b4950; }
+.tag.pending-review { background: #fff5df; border-color: #ead59e; color: #70551a; }
 .icon-box { width: 46px; height: 46px; display: grid; place-items: center; background: #e7f3f2; color: #176d72; border-radius: 15px; flex: none; }
 .metric { font: 800 33px/1.1 var(--app-font-serif); color: #173a4e; }
 .metric-label { color: #56707b; font-weight: 650; font-size: 14px; }
