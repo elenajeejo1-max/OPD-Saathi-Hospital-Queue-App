@@ -1,0 +1,229 @@
+import { useEffect, useMemo, useState } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ErrorBoundary } from '@/components/error-boundary';
+import { Toaster } from '@/components/ui/toaster';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { Route, Switch, Link, useLocation, Router as WouterRouter } from 'wouter';
+import { useForm } from 'react-hook-form';
+import { Form } from '@/components/ui/form';
+import { Accessibility, AlertCircle, ArrowLeft, ArrowRight, Bell, Check, ChevronRight, CircleHelp, ClipboardList, Clock3, Eye, HeartPulse, Hospital, Languages, MapPin, Menu, Mic, Navigation, Phone, Printer, RotateCcw, Search, ShieldCheck, Siren, Sparkles, Stethoscope, Volume2 } from 'lucide-react';
+import { departments, departmentMeta, initialState, reasons, waitEstimate, type Department, type HospitalState, type Patient } from './data';
+import { useHospitalState } from './persistence';
+import { directions, places, shortestRoute } from './navigation';
+import { t, type Lang } from './translations';
+import NotFound from '@/pages/not-found';
+
+const queryClient = new QueryClient();
+const navItems = [
+  {path:'/',label:'Home',icon:Hospital},{path:'/register',label:'Register',icon:ClipboardList},{path:'/slip',label:'Slip',icon:HeartPulse},{path:'/queue',label:'Queue',icon:Clock3},{path:'/navigate',label:'Navigate',icon:MapPin},{path:'/assistant',label:'Assistant',icon:CircleHelp},{path:'/staff',label:'Staff',icon:Stethoscope},{path:'/board',label:'Board',icon:Eye}
+];
+type SharedProps = {state:HospitalState; update:(fn:(s:HospitalState)=>HospitalState)=>void; lang:Lang; setLang:(l:Lang)=>void};
+function speak(text:string,lang:Lang='en') { if('speechSynthesis' in window){window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang=lang==='hi'?'hi-IN':'en-IN';u.rate=.88;window.speechSynthesis.speak(u);} }
+function Btn({children,onClick,className='',...props}:{children:React.ReactNode;onClick?:()=>void;className?:string;[key:string]:any}) {return <button className={`btn ${className}`} onClick={onClick} {...props}>{children}</button>}
+
+function Shell({children,lang,setLang}:import('react').PropsWithChildren<{lang:Lang;setLang:(l:Lang)=>void}>) {
+ const [path]=useLocation(),[settings,setSettings]=useState(false),[emergencyOpen,setEmergencyOpen]=useState(false);
+ const emergency=()=>{try{localStorage.setItem('opd-saathi-urgent-help',JSON.stringify({createdAt:new Date().toISOString(),active:true}));window.dispatchEvent(new Event('opd-urgent'));}catch{}setEmergencyOpen(true);};
+ const toggleClass=(name:string)=>{document.documentElement.classList.toggle(name);localStorage.setItem(`opd-${name}`,String(document.documentElement.classList.contains(name)));};
+ useEffect(()=>{document.documentElement.classList.toggle('large-text',localStorage.getItem('opd-large-text')==='true');document.documentElement.classList.toggle('high-contrast',localStorage.getItem('opd-high-contrast')==='true');},[]);
+ return <div className="app-shell">
+  <a href="#main-content" className="sr-only focus:not-sr-only">Skip to main content</a>
+  <header className="topbar no-print"><div className="top-inner">
+   <Link href="/" className="brand"><span className="brand-mark"><Hospital size={24}/></span><span>OPD Saathi<small style={{display:'block',fontSize:11,fontWeight:600,color:'#627985'}}>City District Hospital</small></span></Link>
+   <nav className="nav-links" aria-label="Main navigation">{navItems.map(({path:p,label,icon:Icon})=><Link key={p} href={p} className={`nav-link ${p===path?'active':''}`} data-testid={`link-${label.toLowerCase()}`}><Icon size={17}/><span>{t(label,lang)}</span></Link>)}</nav>
+  <button className="emergency-top" data-testid="button-urgent-help" onClick={emergency}><Siren size={18}/>{t('Emergency help',lang)}</button>
+   <button className="btn btn-small" data-testid="button-settings" onClick={()=>setSettings(!settings)} aria-expanded={settings}><Menu size={18}/> <span className="sr-only">Accessibility settings</span></button>
+  </div>{settings&&<div style={{maxWidth:1240,margin:'auto',padding:'0 24px 13px',display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
+   <span className="muted"><Languages size={16} style={{verticalAlign:'middle'}}/> {t('Choose language',lang)}</span>
+   <Btn className={`btn-small ${lang==='en'?'btn-primary':''}`} onClick={()=>setLang('en')}>English</Btn><Btn className={`btn-small ${lang==='hi'?'btn-primary':''}`} onClick={()=>setLang('hi')}>हिंदी</Btn>
+   <Btn className="btn-small" onClick={()=>toggleClass('large-text')}><Eye size={16}/>{t('Large text',lang)}</Btn><Btn className="btn-small" onClick={()=>toggleClass('high-contrast')}>{t('High contrast',lang)}</Btn>
+   <Btn className="btn-small" onClick={()=>speak(lang==='hi'?'आपकी सुविधा के लिए भाषा और पढ़ने की सेटिंग उपलब्ध हैं।':'Language and reading settings are available here.',lang)}><Volume2 size={16}/>{t('Read aloud',lang)}</Btn>
+  </div>}</header>
+  {emergencyOpen&&<div role="dialog" aria-modal="true" aria-labelledby="urgent-dialog-title" style={{position:'fixed',inset:0,zIndex:60,background:'rgba(14,35,48,.58)',display:'grid',placeItems:'center',padding:18}}><section className="card card-danger" style={{width:'min(100%,560px)',boxShadow:'0 22px 70px rgba(12,35,48,.25)'}}><div style={{display:'flex',justifyContent:'space-between',gap:12}}><div><div className="eyebrow" style={{color:'#a9362b'}}>IMMEDIATE HELP</div><h2 id="urgent-dialog-title" style={{marginTop:7}}>{t('Emergency / Casualty',lang)}</h2></div><button className="btn btn-small" onClick={()=>setEmergencyOpen(false)} aria-label="Close emergency information" data-testid="button-close-emergency"><span aria-hidden>×</span></button></div><p style={{lineHeight:1.6}}>{t('Ask hospital staff now. Do not wait for a registration or token.',lang)}</p><div className="btn-row"><a href="tel:112" className="btn btn-danger" data-testid="dialog-call-112"><Phone size={18}/>{t('Call 112',lang)}</a><a href="tel:108" className="btn btn-danger" data-testid="dialog-call-108"><Phone size={18}/>{t('Call 108',lang)}</a><Link href="/navigate" className="btn" onClick={()=>{localStorage.setItem('opd-emergency-route','true');setEmergencyOpen(false);}}><MapPin size={17}/>Directions to Emergency</Link></div></section></div>}
+  <main id="main-content">{children}</main>
+  <nav className="bottom-nav no-print" aria-label="Quick navigation">{navItems.slice(0,5).map(({path:p,label,icon:Icon})=><Link key={p} href={p} className={p===path?'active':''} data-testid={`mobile-link-${label.toLowerCase()}`}><Icon/><span>{t(label,lang)}</span></Link>)}</nav>
+ </div>;
+}
+function EmergencyNotice({lang}:{lang:Lang}) {return <section className="notice notice-red" aria-label="Emergency information"><Siren size={26} style={{flex:'none'}}/><div style={{flex:1}}><strong style={{fontSize:18}}>{t('Emergency / Casualty',lang)}</strong><p style={{margin:'5px 0 12px'}}>{t('Ask hospital staff now. Do not wait for a registration or token.',lang)}</p><div className="btn-row"><a className="btn btn-danger btn-small" href="tel:112" data-testid="link-emergency-112"><Phone size={16}/>{t('Call 112',lang)}</a><a className="btn btn-danger btn-small" href="tel:108" data-testid="link-emergency-108"><Phone size={16}/>{t('Call 108',lang)}</a></div></div></section>}
+function PageHead({eyebrow,title,description}:{eyebrow:string;title:string;description:string}) {return <div className="page-head"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p className="subhead">{description}</p></div></div>}
+function Home({state,lang}:SharedProps) {
+ const latestId=localStorage.getItem('opd-saathi-patient-id'), latest=state.patients.find(p=>p.id===latestId);
+ return <div className="page-wrap"><PageHead eyebrow="CITY DISTRICT HOSPITAL · OPD SAATHI" title={t('Care, made easier',lang)} description="A calm, clear way to find your clinic, registration, and next step."/>
+  <div className="grid-2" style={{alignItems:'stretch'}}>
+   <section className="card card-tint" style={{display:'flex',flexDirection:'column',justifyContent:'space-between',minHeight:285}}><div><span className="tag"><ShieldCheck size={15}/> Patient support</span><h2 style={{fontSize:30,marginTop:18}}>Welcome. We can help you find your way.</h2><p className="subhead">Start with one simple step. You can ask a staff member for help at any time.</p></div><div className="btn-row" style={{marginTop:20}}><Link href="/register" className="btn btn-primary" data-testid="link-start-registration"><ClipboardList size={18}/>{t('Register for a visit',lang)}<ArrowRight size={17}/></Link><Link href="/navigate" className="btn"><Navigation size={17}/>{t('Find my way',lang)}</Link></div></section>
+   <section className="card" style={{display:'grid',gap:15,alignContent:'start'}}><h2>What would you like to do?</h2>
+    <Link href="/queue" className="list-row" style={{textDecoration:'none',color:'inherit'}}><span className="icon-box"><Clock3/></span><span style={{flex:1}}><strong>{t('Track my turn',lang)}</strong><span className="muted" style={{display:'block'}}>See the queue and estimated wait</span></span><ChevronRight/></Link>
+    <Link href="/slip" className="list-row" style={{textDecoration:'none',color:'inherit'}}><span className="icon-box"><ClipboardList/></span><span style={{flex:1}}><strong>{t('View my slip',lang)}</strong><span className="muted" style={{display:'block'}}>Your token and clinic details</span></span><ChevronRight/></Link>
+    <Link href="/assistant" className="list-row" style={{textDecoration:'none',color:'inherit'}}><span className="icon-box"><CircleHelp/></span><span style={{flex:1}}><strong>{t('Ask hospital help',lang)}</strong><span className="muted" style={{display:'block'}}>Simple answers in English or Hindi</span></span><ChevronRight/></Link>
+   </section>
+  </div>
+  {latest&&<section className="card" style={{marginTop:18}}><div style={{display:'flex',alignItems:'center',gap:16,flexWrap:'wrap'}}><div className="icon-box"><ClipboardList/></div><div style={{flex:1}}><div className="eyebrow">YOUR LATEST VISIT</div><h2 style={{margin:'4px 0'}}>Hello, {latest.firstName}. Your slip is ready.</h2><span className="muted">{latest.department} · {latest.token}</span></div><Link href="/slip" className="btn btn-primary">Open slip<ArrowRight size={17}/></Link></div></section>}
+  <div style={{marginTop:18}}><EmergencyNotice lang={lang}/></div>
+ </div>;
+}
+
+type RegistrationValues={firstName:string;age:string;gender:string;phone:string;department:Department};
+function Registration({state,update,lang}:SharedProps) {
+ const [step,setStep]=useState(0),[assisted,setAssisted]=useState(false),[urgent,setUrgent]=useState(false),[,go]=useLocation();
+ const form=useForm<RegistrationValues>({defaultValues:{firstName:'',age:'',gender:'',phone:'',department:'General Medicine'}});
+ const steps=['Your name','Age and gender','Phone (optional)','Choose a department'];
+ const answers=form.getValues();
+ const next=async()=>{const fields:(keyof RegistrationValues)[][]=[['firstName'],['age','gender'],['phone'],['department']];if(await form.trigger(fields[step]))setStep(Math.min(step+1,3));};
+ const back=()=>setStep(Math.max(0,step-1));
+ const recognitionAvailable=typeof window!=='undefined'&&('SpeechRecognition'in window||'webkitSpeechRecognition'in window);
+ const listenForName=()=>{const w=window as any;const Rec=w.SpeechRecognition||w.webkitSpeechRecognition;if(Rec){const r=new Rec();r.lang=lang==='hi'?'hi-IN':'en-IN';r.onresult=(e:any)=>form.setValue('firstName',e.results[0][0].transcript);r.start();}};
+ const submit=form.handleSubmit(data=>{
+  const meta=departmentMeta[data.department],n=state.patients.filter(p=>p.department===data.department).length+1;
+  const patient:Patient={id:`visit-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,token:`${meta.prefix}-${String(n).padStart(2,'0')}`,firstName:data.firstName.trim(),age:Number(data.age),gender:data.gender,phone:data.phone.trim()||undefined,department:data.department,status:'waiting',registeredAt:new Date().toISOString(),doctor:meta.doctor,room:meta.room,floor:1};
+  update(s=>({...s,patients:[patient,...s.patients]}));localStorage.setItem('opd-saathi-patient-id',patient.id);go('/slip');
+ });
+ return <div className="page-wrap"><PageHead eyebrow="PATIENT REGISTRATION" title="A few details, one step at a time." description="You can go back and change any answer before submitting."/>
+  <div className="grid-2" style={{alignItems:'start'}}><section className="card">
+   <div className="step-indicator" aria-label={`Step ${step+1} of 4`}>{steps.map((s,i)=><div key={s} style={{display:'contents'}}><span className={`step-dot ${i<=step?'active':''}`} aria-current={step===i?'step':undefined}>{i<step?<Check size={17}/>:i+1}</span>{i<3&&<span className="step-line"/>}</div>)}</div>
+   <h2>{t(steps[step],lang)}</h2><Form {...form}><form onSubmit={submit} noValidate>
+   {step===0&&<div className="field"><label htmlFor="patient-name">{t('What is your first name?',lang)}</label><input id="patient-name" autoFocus {...form.register('firstName',{required:'Please enter a first name.'})} placeholder={lang==='hi'?'उदाहरण: आशा':'For example, Asha'} data-testid="input-first-name"/>{form.formState.errors.firstName&&<small role="alert">{form.formState.errors.firstName.message}</small>}{recognitionAvailable&&<Btn type="button" className="btn-small" onClick={listenForName}><Mic size={16}/> {t('Speak your name',lang)}</Btn>}</div>}
+   {step===1&&<><div className="field"><label htmlFor="patient-age">{t('How old are you?',lang)}</label><input id="patient-age" type="number" min="0" max="120" {...form.register('age',{required:'Please enter age.',validate:v=>Number(v)>=0&&Number(v)<=120||'Enter an age from 0 to 120.'})} data-testid="input-age"/></div><div className="field"><label htmlFor="patient-gender">{t('Gender',lang)}</label><select id="patient-gender" {...form.register('gender',{required:'Please choose an option.'})} data-testid="select-gender"><option value="">{t('Choose one',lang)}</option><option value="Female">{t('Female',lang)}</option><option value="Male">{t('Male',lang)}</option><option value="Other">{t('Other',lang)}</option><option value="Prefer not to say">{t('Prefer not to say',lang)}</option></select></div>{(form.formState.errors.age||form.formState.errors.gender)&&<small role="alert">Please complete both fields.</small>}</>}
+   {step===2&&<div className="field"><label htmlFor="patient-phone">{t('Phone number (optional)',lang)}</label><input id="patient-phone" type="tel" {...form.register('phone',{validate:v=>!v||/^[0-9+\-\s()]{7,18}$/.test(v)||'Enter a valid phone number or leave blank.'})} placeholder={lang==='hi'?'यदि साझा करना चाहें':'Only if you would like to share'} data-testid="input-phone"/><small>{t('You can leave this empty. Your details stay on this device in this demo.',lang)}</small>{form.formState.errors.phone&&<small role="alert">{form.formState.errors.phone.message}</small>}</div>}
+   {step===3&&<div className="field"><label htmlFor="department">{t('Which clinic would you like to visit?',lang)}</label><select id="department" {...form.register('department')} data-testid="select-department">{departments.map(d=><option key={d} value={d}>{t(d,lang)} — {t(reasons[d],lang)}</option>)}</select><small>{t(reasons[form.watch('department')],lang)}</small></div>}
+   <div className="btn-row" style={{justifyContent:'space-between',marginTop:24}}>{step>0?<Btn type="button" onClick={back}><ArrowLeft size={17}/>{t('Back',lang)}</Btn>:<span/>}{step<3?<Btn type="button" className="btn-primary" onClick={next}>{t('Continue',lang)}<ArrowRight size={17}/></Btn>:<Btn type="submit" className="btn-primary" data-testid="button-submit-registration">{t('Create my OPD slip',lang)}<ArrowRight size={17}/></Btn>}</div>
+  </form></Form></section>
+  <aside className="stack"><EmergencyNotice lang={lang}/>
+   <section className="card card-warm"><div style={{display:'flex',gap:12}}><AlertCircle size={24} style={{flex:'none',color:'#966b1c'}}/><div><h3>{t('Feeling seriously unwell?',lang)}</h3><p style={{marginBottom:13}}>{t('Do not use this registration form for urgent or severe symptoms. Go straight to Emergency / Casualty and tell hospital staff now. Do not wait for a token.',lang)}</p><Btn className="btn-danger btn-small" onClick={()=>{setUrgent(true);localStorage.setItem('opd-emergency-route','true');update(s=>({...s,urgent:{active:true,createdAt:new Date().toISOString(),acknowledged:false}}));go('/navigate');}}><Siren size={16}/>{t('I need urgent help',lang)}</Btn>{urgent&&<p role="status" style={{margin:'10px 0 0',fontWeight:700}}>Urgent help flag saved for hospital staff. Please ask staff now.</p>}</div></div></section>
+   <section className="card"><label style={{display:'flex',gap:12,alignItems:'center',fontWeight:750}}><input type="checkbox" checked={assisted} onChange={e=>setAssisted(e.target.checked)} data-testid="checkbox-assisted"/>I am registering with help from someone</label><p className="muted" style={{margin:'10px 0 0'}}>Staff at the help desk can guide you through each question.</p></section>
+  </aside></div>
+ </div>;
+}
+
+function getCurrentPatient(state:HospitalState) {const id=localStorage.getItem('opd-saathi-patient-id');return state.patients.find(p=>p.id===id)??state.patients.find(p=>p.id.startsWith('demo-'));}
+function Slip({state,lang}:SharedProps) {
+ const patient=getCurrentPatient(state);
+ if(!patient)return <div className="page-wrap"><PageHead eyebrow="YOUR VISIT" title="No slip yet" description="Register for an OPD visit to create a slip."/><Link className="btn btn-primary" href="/register">Register for a visit</Link></div>;
+ const {ahead,minutes}=waitEstimate(state,patient);
+ return <div className="page-wrap"><PageHead eyebrow="YOUR OPD SLIP" title="Keep this slip with you." description="Show it to hospital staff if you need help finding your clinic."/>
+  <div className="grid-2" style={{alignItems:'start'}}><section className="card" id="slip-print"><div className="print-only"><strong>City District Hospital · OPD Saathi</strong></div><div style={{display:'flex',justifyContent:'space-between',gap:10,alignItems:'start'}}><div><span className="tag">OPD VISIT</span><h2 style={{marginTop:12}}>{patient.firstName}</h2><p className="muted">{patient.department} · {patient.age} years</p></div><span className={`tag ${patient.status}`}>{t(patient.status==='no-show'?'No-show':patient.status[0].toUpperCase()+patient.status.slice(1),lang)}</span></div>
+   <div style={{background:'#f0f8f7',padding:22,borderRadius:17,margin:'20px 0',textAlign:'center'}}><div className="eyebrow">YOUR TOKEN</div><div className="token" data-testid="text-patient-token">{patient.token}</div><div style={{marginTop:10,fontWeight:750}}>{patient.doctor} · {patient.room}, First floor</div></div>
+   <div className="grid-2"><div><div className="metric" data-testid="text-people-ahead">{ahead}</div><div className="metric-label">{t('People ahead',lang)}</div></div><div><div className="metric" data-testid="text-estimated-wait">{minutes} min</div><div className="metric-label">{t('Estimated wait',lang)}</div></div></div>
+   <div className="notice notice-blue" style={{marginTop:20}}><Clock3 size={21}/><span><strong>{t('Next steps',lang)}</strong><br/>{lang==='hi'?'पहली मंज़िल पर ओपीडी प्रतीक्षा कक्ष में जाएँ। अपना टोकन सुनें और मदद के लिए कर्मचारी से पूछें। कतार के साथ अनुमान बदल सकता है।':'Go to the OPD waiting hall on the first floor. Listen for your token, and ask staff if you need assistance. An estimate can change as the queue moves.'}</span></div>
+   <div className="btn-row no-print" style={{marginTop:20}}><Btn className="btn-primary" onClick={()=>window.print()} data-testid="button-print-slip"><Printer size={17}/>{t('Print slip',lang)}</Btn>{'speechSynthesis'in window&&<Btn onClick={()=>speak(`${patient.firstName}. Token ${patient.token}. ${patient.doctor}. ${patient.room}. First floor. ${ahead} people ahead. Estimated wait ${minutes} minutes.`,lang)} data-testid="button-read-slip"><Volume2 size={17}/>{t('Read aloud',lang)}</Btn>}<Link href="/queue" className="btn">{t('Track my turn',lang)}<ArrowRight size={17}/></Link></div>
+  </section><div className="stack"><EmergencyNotice lang={lang}/><section className="card"><h2>Need a hand?</h2><p className="muted">The help desk is on the ground floor near Registration. Staff can guide you to your clinic.</p><Link href="/navigate" className="btn btn-soft"><MapPin size={17}/>Directions to your clinic</Link></section></div></div>
+ </div>;
+}
+
+function Queue({state,lang}:SharedProps) {
+ const patient=getCurrentPatient(state); const [alerts,setAlerts]=useState(false);
+ useEffect(()=>{if(!patient)return;const {ahead}=waitEstimate(state,patient);if(ahead===3&&'Notification'in window&&Notification.permission==='granted')new Notification('Your turn is getting closer',{body:'Three people are ahead of you.'});if(ahead===3&&navigator.vibrate)navigator.vibrate([120,80,120]);},[state,patient]);
+ const allowAlerts=async()=>{if('Notification'in window&&Notification.permission==='default')await Notification.requestPermission();setAlerts(true);};
+ if(!patient)return <div className="page-wrap"><PageHead eyebrow="QUEUE" title="Track your turn" description="Register first to see your place in the queue."/><Link href="/register" className="btn btn-primary">Register for a visit</Link></div>;
+ const {ahead,minutes}=waitEstimate(state,patient),warning=ahead<=3&&patient.status==='waiting';
+ return <div className="page-wrap"><PageHead eyebrow="LIVE QUEUE" title="Your place, at a glance." description="Queue changes made by staff appear here automatically."/>
+  <div className="grid-2" style={{alignItems:'start'}}><section className="card"><div style={{display:'flex',justifyContent:'space-between',alignItems:'start',gap:12}}><div><span className="eyebrow">{patient.department}</span><div className="token" style={{marginTop:8}}>{patient.token}</div></div><span className={`tag ${patient.status}`}>{t(patient.status==='no-show'?'No-show':patient.status[0].toUpperCase()+patient.status.slice(1),lang)}</span></div>
+   {warning&&<div className="notice notice-gold" role="status" style={{marginTop:20}}><Bell size={22}/><span><strong>Your turn is getting closer.</strong><br/>Only {ahead} {ahead===1?'person':'people'} ahead. Please stay near {patient.room}.</span></div>}
+   {patient.status==='called'&&<div className="notice notice-blue" role="status" style={{marginTop:20}}><Bell size={22}/><span><strong>Your token is being called.</strong><br/>Please go to {patient.room} on the first floor and tell staff your token.</span></div>}
+   <div className="grid-2" style={{marginTop:25}}><div className="card-tint" style={{padding:16,borderRadius:14}}><div className="metric">{ahead}</div><div className="metric-label">{t('People ahead',lang)}</div></div><div className="card-tint" style={{padding:16,borderRadius:14}}><div className="metric">{minutes} min</div><div className="metric-label">{t('Estimated wait',lang)}</div></div></div>
+   <p className="muted" style={{marginTop:18}}>Estimate = people ahead × typical visit time + clinic delay, rounded to 5 minutes. It may change.</p>
+   <Btn className="btn-soft" onClick={allowAlerts} data-testid="button-enable-notifications"><Bell size={17}/>{alerts?'Alerts enabled where supported':'Enable turn alerts'}</Btn>
+  </section><div className="stack"><section className="card"><h2>Where to go</h2><p><strong>{patient.doctor}</strong><br/>{patient.room} · First floor · OPD waiting hall</p><Link href="/navigate" className="btn btn-primary"><Navigation size={17}/>Show directions</Link></section><EmergencyNotice lang={lang}/></div></div>
+ </div>;
+}
+
+function Navigate({lang}:SharedProps) {
+ const [from,setFrom]=useState('entrance'),[to,setTo]=useState(()=>localStorage.getItem('opd-emergency-route')==='true'?'emergency':'room1'),[avoid,setAvoid]=useState(localStorage.getItem('opd-avoid-stairs')==='true'),[lost,setLost]=useState(false);
+ useEffect(()=>{localStorage.removeItem('opd-emergency-route');},[]);
+ const route=useMemo(()=>shortestRoute(from,to,avoid),[from,to,avoid]),steps=directions(route);
+ const placeName=(id:string)=>{const p=places.find(x=>x.id===id);if(!p)return id;return hiPlaces[id]??t(p.name,lang);};
+ const runLost=()=>{setTo('help');setLost(true);};
+ const setAvoidStairs=(v:boolean)=>{setAvoid(v);localStorage.setItem('opd-avoid-stairs',String(v));};
+ const floorNames=['Ground floor','First floor','Second floor'];
+ return <div className="page-wrap"><PageHead eyebrow="HOSPITAL DIRECTIONS" title={lang==='hi'?'रास्ता खोजें':'Find a clear route.'} description={lang==='hi'?'तीन मंज़िलों के बीच रास्ता देखें। जरूरत हो तो सीढ़ियों से बचें।':'Choose where you are and where you need to go. You can avoid stairs.'}/>
+  <section className="card"><div className="grid-2"><div className="field"><label htmlFor="route-from">{lang==='hi'?'मैं यहाँ हूँ':'I am at'}</label><select id="route-from" value={from} onChange={e=>{setFrom(e.target.value);setLost(false);}} data-testid="select-route-start">{places.map(p=><option key={p.id} value={p.id}>{placeName(p.id)} · {t(floorNames[p.floor],lang)}</option>)}</select></div><div className="field"><label htmlFor="route-to">{lang==='hi'?'मुझे यहाँ जाना है':'I need to go to'}</label><select id="route-to" value={to} onChange={e=>{setTo(e.target.value);setLost(false);}} data-testid="select-route-destination">{places.map(p=><option key={p.id} value={p.id}>{placeName(p.id)} · {t(floorNames[p.floor],lang)}</option>)}</select></div></div>
+   <div className="btn-row" style={{alignItems:'center',marginBottom:19}}><label style={{display:'inline-flex',gap:10,alignItems:'center',fontWeight:700}}><input type="checkbox" checked={avoid} onChange={e=>setAvoidStairs(e.target.checked)} data-testid="checkbox-avoid-stairs"/><Accessibility size={19}/>{t('Avoid stairs',lang)}</label><Btn className="btn-soft" onClick={runLost} data-testid="button-im-lost"><CircleHelp size={17}/>{lang==='hi'?'मैं रास्ता भूल गया':'I’m lost — find help desk'}</Btn><Btn className="btn-small" onClick={()=>speak(lang==='hi'?`रास्ता निर्देश। ${steps.map((_,i)=>`कदम ${i+1}`).join('। ')}`:`Directions. ${steps.join(' ')}`,lang)}><Volume2 size={17}/>{lang==='hi'?'सुनें':'Listen'}</Btn></div>
+   {lost&&<div className="notice notice-blue" role="status"><ShieldCheck size={20}/><span>{lang==='hi'?'आपके चुने हुए स्थान से सहायता डेस्क तक का रास्ता दिखाया गया है। वहाँ कर्मचारी आपकी मदद करेंगे।':'The route from your selected location to the help desk is shown. Hospital staff can guide you from there.'}</span></div>}
+   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'20px 0 10px'}}><h2 style={{margin:0}}>{lang==='hi'?'अस्पताल का नक्शा':'Hospital map'}</h2><span className="tag">3 floors · Lift marked</span></div>
+   {[0,1,2].map(floor=><div key={floor} style={{marginTop:16}}><h3>{t(floorNames[floor],lang)}</h3><div className="floor-map">{places.filter(p=>p.floor===floor).map(p=><div key={p.id} className={`map-node ${route.includes(p.id)?'route':''} ${p.id===to?'current':''}`} data-testid={`map-place-${p.id}`}><span>{route.includes(p.id)&&<Check size={13} style={{verticalAlign:'middle'}}/>} {placeName(p.id)}</span></div>)}</div></div>)}
+   <div className="card-tint" style={{padding:18,borderRadius:15,marginTop:20}}><h3>{lang==='hi'?'रास्ते के निर्देश':'Step-by-step directions'}</h3>{route.length?steps.map((step,i)=><div key={`${route[i]}-${i}`} className="list-row"><span className="step-dot active">{i+1}</span><span style={{flex:1}}>{lang==='hi'?`आगे बढ़ें: ${placeName(route[i+1])} की ओर। ${places.find(p=>p.id===route[i+1])?.floor!==places.find(p=>p.id===route[i])?.floor?'मंज़िल बदलने के लिए लिफ्ट लें।':''}`:step}</span></div>):<p role="alert">No accessible route found. Choose another location or ask a staff member.</p>}</div>
+  </section>
+ </div>;
+}
+const hiPlaces:Record<string,string>={entrance:'मुख्य प्रवेश',registration:'पंजीकरण',help:'सहायता डेस्क',emergency:'आपातकालीन विभाग',pharmacy:'दवा काउंटर',lab:'प्रयोगशाला',xray:'एक्स-रे',water:'पीने का पानी',wheelchair:'व्हीलचेयर सहायता',ramp:'रैंप',waiting:'ओपीडी प्रतीक्षा कक्ष',nurses:'नर्स स्टेशन',lift:'लिफ्ट',stairs:'सीढ़ियाँ',toilets:'शौचालय'};
+const faqs=[
+ {q:'Where is registration?',h:'पंजीकरण कहाँ है?',a:'Registration is on the ground floor, beside the main entrance. Ask the help desk if you would like someone to walk with you.',ha:'पंजीकरण भूतल पर मुख्य प्रवेश के पास है। साथ चलने में मदद के लिए सहायता डेस्क से पूछें।'},
+ {q:'Where do I collect medicine?',h:'दवा कहाँ मिलेगी?',a:'The pharmacy is on the ground floor. Take your paper from the doctor to the pharmacy counter.',ha:'दवा काउंटर भूतल पर है। डॉक्टर की पर्ची दवा काउंटर पर दिखाएँ।'},
+ {q:'How do I find my clinic?',h:'अपना क्लिनिक कैसे खोजूँ?',a:'Use Find a place to see a route to your room. OPD departments are on the first floor, rooms 1 to 8.',ha:'अपना कमरा देखने के लिए रास्ता खोजें चुनें। ओपीडी विभाग पहली मंज़िल पर कमरे 1 से 8 में हैं।'},
+ {q:'What if I need urgent help?',h:'तुरंत मदद चाहिए तो क्या करें?',a:'Go to Emergency / Casualty and tell hospital staff now. Do not wait for a registration or token. You can call 112 or 108.',ha:'आपातकालीन विभाग जाएँ और अभी कर्मचारी को बताएं। पंजीकरण या टोकन की प्रतीक्षा न करें। 112 या 108 पर कॉल कर सकते हैं।'},
+ {q:'Where is the lift?',h:'लिफ्ट कहाँ है?',a:'The lift connects the ground, first, and second floors. Follow the lift signs, or choose Avoid stairs in Find a place.',ha:'लिफ्ट भूतल, पहली और दूसरी मंज़िल को जोड़ती है। लिफ्ट के संकेत देखें या रास्ता खोजें में सीढ़ियों से बचें चुनें।'},
+ {q:'Can I get help with a wheelchair?',h:'व्हीलचेयर सहायता मिलेगी?',a:'A wheelchair assistance point is by the main entrance. The help desk can guide you.',ha:'मुख्य प्रवेश के पास व्हीलचेयर सहायता केंद्र है। सहायता डेस्क रास्ता बताएगा।'},
+];
+function Assistant({lang}:SharedProps) {
+ const [query,setQuery]=useState(''),[active,setActive]=useState<number|null>(null);
+ const filtered=faqs.filter(f=>`${f.q} ${f.a} ${f.h} ${f.ha}`.toLowerCase().includes(query.toLowerCase()));
+ return <div className="page-wrap"><PageHead eyebrow="HOSPITAL DIRECTORY" title={lang==='hi'?'अस्पताल सहायता':'Simple answers, right here.'} description={lang==='hi'?'अस्पताल के स्थान और सुविधाओं के बारे में पूछें।':'Find hospital places and practical visit information in English or Hindi.'}/>
+  <div className="grid-2" style={{alignItems:'start'}}><section className="card"><span className="tag"><Sparkles size={14}/>{t('Not a live AI',lang)}</span><h2 style={{marginTop:15}}>Hospital helper</h2><p className="muted">This is rule-based guidance from the hospital directory and common questions. It is not a live AI model and cannot provide medical advice.</p>
+   <label className="field"><span>{lang==='hi'?'अपना सवाल लिखें':'Search a hospital question'}</span><span style={{position:'relative'}}><Search size={19} style={{position:'absolute',left:13,top:15,color:'#58717c'}}/><input style={{paddingLeft:42}} value={query} onChange={e=>setQuery(e.target.value)} placeholder={lang==='hi'?'उदाहरण: पंजीकरण कहाँ है?':'For example: Where is registration?'} data-testid="input-assistant-search"/></span></label>
+   <div>{filtered.map((f,i)=><div key={f.q} className="list-row" style={{display:'block'}}><button className="btn" style={{width:'100%',justifyContent:'space-between',textAlign:'left'}} onClick={()=>setActive(active===i?null:i)} data-testid={`button-faq-${i}`}><span>{lang==='hi'?f.h:f.q}</span><ChevronRight size={18}/></button>{active===i&&<div style={{padding:'12px 6px 4px',lineHeight:1.6}}>{lang==='hi'?f.ha:f.a}<div style={{marginTop:10}}><Btn className="btn-small" onClick={()=>speak(lang==='hi'?f.ha:f.a,lang)}><Volume2 size={16}/>{t('Read aloud',lang)}</Btn></div></div>}</div>)}{filtered.length===0&&<div className="notice notice-blue">No directory answer found. Please ask the help desk on the ground floor.</div>}</div>
+  </section><div className="stack"><section className="card card-tint"><h2>Find a hospital place</h2><p className="muted">The directory covers all three floors, including rooms, services, lift, stairs, and accessibility points.</p><Link href="/navigate" className="btn btn-primary"><MapPin size={17}/>Open hospital map</Link></section><EmergencyNotice lang={lang}/></div></div>
+ </div>;
+}
+
+function Staff({state,update,lang}:SharedProps) {
+ const [department,setDepartment]=useState<Department>('General Medicine'),[transfer,setTransfer]=useState<Department>('Children'),[notice,setNotice]=useState(''),[confirmReset,setConfirmReset]=useState(false);
+ const active=state.patients.filter(p=>p.department===department&&['waiting','called'].includes(p.status)).sort((a,b)=>new Date(a.registeredAt).getTime()-new Date(b.registeredAt).getTime());
+ const current=active.find(p=>p.status==='called'),waiting=active.filter(p=>p.status==='waiting'),delay=state.delays[department]||0;
+ const mutatePatient=(id:string,patch:Partial<Patient>)=>update(s=>({...s,patients:s.patients.map(p=>p.id===id?{...p,...patch}:p)}));
+ const callNext=()=>{const next=waiting[0];if(!next){setNotice('No waiting patients in this department.');return;}update(s=>({...s,patients:s.patients.map(p=>p.id===next.id?{...p,status:'called'}:p.status==='called'&&p.department===department?{...p,status:'served'}:p)}));setNotice(`${next.token} called to ${next.room}.`);};
+ const advance=(p:Patient,status:Patient['status'])=>{mutatePatient(p.id,{status});setNotice(`${p.token} marked ${status}.`);};
+ const moveToEnd=(p:Patient)=>{update(s=>({...s,patients:s.patients.map(x=>x.id===p.id?{...x,status:'waiting',registeredAt:new Date().toISOString()}:x)}));setNotice(`${p.token} moved to the end of the queue.`);};
+ const transferPatient=(p:Patient)=>{const meta=departmentMeta[transfer],number=state.patients.filter(x=>x.department===transfer).length+1;update(s=>({...s,patients:s.patients.map(x=>x.id===p.id?{...x,department:transfer,doctor:meta.doctor,room:meta.room,floor:1,token:`${meta.prefix}-${String(number).padStart(2,'0')}`,status:'waiting',registeredAt:new Date().toISOString()}:x)}));setNotice(`${p.token} transferred to ${transfer}.`);};
+ const reset=()=>{if(confirmReset){update(()=>initialState());localStorage.removeItem('opd-saathi-urgent-help');setConfirmReset(false);setNotice('Demo queue reset.');}else setConfirmReset(true);};
+ const setDoctor=(available:boolean)=>update(s=>({...s,doctors:{...s.doctors,[department]:available}}));
+ const setDelay=(value:number)=>update(s=>({...s,delays:{...s.delays,[department]:value}}));
+ const acknowledge=()=>{localStorage.setItem('opd-saathi-urgent-help',JSON.stringify({active:false,acknowledged:true,createdAt:state.urgent.createdAt}));update(s=>({...s,urgent:{...s.urgent,active:false,acknowledged:true}}));};
+ const handleUrgent=()=>{try{const raw=localStorage.getItem('opd-saathi-urgent-help');if(raw){const urgent=JSON.parse(raw);if(urgent.active&&!state.urgent.active)update(s=>({...s,urgent:{active:true,createdAt:urgent.createdAt,acknowledged:false}}));}}catch{}};
+ useEffect(()=>{window.addEventListener('opd-urgent',handleUrgent);const onStorage=(e:StorageEvent)=>{if(e.key==='opd-saathi-urgent-help')handleUrgent();};window.addEventListener('storage',onStorage);handleUrgent();return()=>{window.removeEventListener('opd-urgent',handleUrgent);window.removeEventListener('storage',onStorage);};});
+ return <div className="page-wrap"><PageHead eyebrow="STAFF DESK · DEMO MODE" title="Queue control" description="Actions synchronize with patient tracking and the public queue board across open tabs."/>
+  <div className="notice notice-blue" style={{marginBottom:18}}><ShieldCheck size={21}/><span><strong>Demo only. Do not enter real patient information.</strong> This simulation stores fictional data in this browser’s localStorage. It has no accounts, backend, or secure patient record system.</span></div>
+  {state.urgent.active&&<section className="urgent-banner" role="alert" data-testid="status-urgent-flag" style={{marginBottom:18}}><div style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}><Siren size={30}/><div style={{flex:1}}><h2 style={{color:'#702c24',margin:'0 0 3px'}}>Urgent help requested</h2><strong>Ask a nearby staff member to check in immediately. Direct the person to Emergency / Casualty.</strong></div><Btn className="btn-danger" onClick={acknowledge} data-testid="button-acknowledge-urgent"><Check size={17}/>{t('Acknowledge',lang)}</Btn></div></section>}
+  <div className="grid-2" style={{alignItems:'start'}}><section className="card"><div className="field" style={{marginTop:0}}><label htmlFor="staff-department">Department</label><select id="staff-department" value={department} onChange={e=>setDepartment(e.target.value as Department)} data-testid="select-staff-department">{departments.map(d=><option key={d}>{d}</option>)}</select></div>
+   <div className="grid-3"><div><div className="metric">{current?.token??'—'}</div><div className="metric-label">Current token</div></div><div><div className="metric">{waiting.length}</div><div className="metric-label">Waiting</div></div><div><div className="metric">{Math.max(0,Math.round((waiting.length*departmentMeta[department].average+delay)/5)*5)}m</div><div className="metric-label">Wait estimate</div></div></div>
+   <div className="list-row" style={{marginTop:14}}><span><strong>{state.doctors[department]?'Doctor available':'Doctor away'}</strong><small className="muted" style={{display:'block'}}>{departmentMeta[department].doctor} · {departmentMeta[department].room}</small></span><Btn className="btn-small" onClick={()=>setDoctor(!state.doctors[department])} data-testid="button-doctor-status">{state.doctors[department]?'Mark away':'Mark available'}</Btn></div>
+   <div className="field"><label htmlFor="delay">Doctor delay: {delay} minutes</label><input id="delay" type="range" min="0" max="60" step="5" value={delay} onChange={e=>setDelay(Number(e.target.value))} data-testid="input-doctor-delay"/></div>
+   <div className="btn-row"><Btn className="btn-primary" onClick={callNext} data-testid="button-call-next"><Bell size={17}/>{t('Call Next',lang)}</Btn><Btn onClick={()=>current&&advance(current,'no-show')} disabled={!current} data-testid="button-current-no-show">Mark current no-show</Btn><Btn onClick={reset} className={confirmReset?'btn-danger':''} data-testid="button-reset-demo"><RotateCcw size={16}/>{confirmReset?'Confirm reset':'Reset demo'}</Btn>{confirmReset&&<Btn className="btn-small" onClick={()=>setConfirmReset(false)}>Cancel reset</Btn>}</div>
+   {notice&&<p role="status" className="notice notice-blue" style={{marginTop:14}}>{notice}</p>}
+  </section>
+  <section className="card"><h2>Department queue</h2><p className="muted">Names appear only in this staff simulation, never on the public board.</p><div className="table-wrap"><table><thead><tr><th>Token / patient</th><th>Status</th><th>Queue actions</th></tr></thead><tbody>{state.patients.filter(p=>p.department===department&&p.status!=='served').sort((a,b)=>new Date(a.registeredAt).getTime()-new Date(b.registeredAt).getTime()).map(p=><tr key={p.id} data-testid={`row-patient-${p.id}`}><td><strong>{p.token}</strong><br/><span className="muted">{p.firstName}</span></td><td><span className={`tag ${p.status}`}>{p.status}</span></td><td><div style={{display:'grid',gap:7}}><div className="btn-row">{p.status==='waiting'&&<Btn className="btn-small" onClick={()=>advance(p,'called')}>Call</Btn>}<Btn className="btn-small" onClick={()=>moveToEnd(p)}>{t('Move to End',lang)}</Btn><Btn className="btn-small" onClick={()=>advance(p,'no-show')}>{t('No-show',lang)}</Btn>{p.status==='called'&&<Btn className="btn-small" onClick={()=>advance(p,'served')}>Mark served</Btn>}</div><div className="btn-row"><select aria-label={`Transfer ${p.token} to department`} value={transfer} onChange={e=>setTransfer(e.target.value as Department)} style={{borderRadius:9,padding:5,maxWidth:155}}>{departments.filter(d=>d!==department).map(d=><option key={d}>{d}</option>)}</select><Btn className="btn-small" onClick={()=>transferPatient(p)} data-testid={`button-transfer-${p.id}`}>{t('Transfer Department',lang)}</Btn></div></div></td></tr>)}</tbody></table>{!state.patients.some(p=>p.department===department&&p.status!=='served')&&<p className="muted">No patients currently in this queue.</p>}</div>
+  </section></div>
+  <EmergencyNotice lang={lang}/>
+ </div>;
+}
+
+function Board({state,lang}:SharedProps) {
+ const [speech,setSpeech]=useState<Lang>('en');
+ const roomGroups=departments.map(d=>({department:d,meta:departmentMeta[d],patients:state.patients.filter(p=>p.department===d&&['waiting','called'].includes(p.status)).sort((a,b)=>new Date(a.registeredAt).getTime()-new Date(b.registeredAt).getTime())}));
+ const announce=(token:string,room:string)=>speak(speech==='hi'?`टोकन ${token}, कृपया ${room} पर आएँ।`:`Token ${token}, please come to ${room}.`,speech);
+ return <div className="tv-mode"><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:15,flexWrap:'wrap',maxWidth:1600,margin:'0 auto 28px'}}><div><div className="eyebrow" style={{color:'#80d4cc'}}>CITY DISTRICT HOSPITAL · OPD</div><h1 style={{margin:'6px 0'}}>Queue board <span style={{fontWeight:500,fontSize:'.65em',color:'#b0c8d0'}}> / कतार बोर्ड</span></h1></div><div className="btn-row"><Btn onClick={()=>setSpeech('en')} className={speech==='en'?'btn-primary':''}><Volume2 size={18}/>English</Btn><Btn onClick={()=>setSpeech('hi')} className={speech==='hi'?'btn-primary':''}>हिंदी</Btn><Link href="/" className="btn">Patient home</Link></div></div>
+  <div className="grid-3" style={{maxWidth:1600,margin:'auto'}}>{roomGroups.map(({department,meta,patients})=>{const current=patients.find(p=>p.status==='called'),next=patients.filter(p=>p.status==='waiting').slice(0,3);return <section className="tv-room" key={department} data-testid={`board-room-${departmentMeta[department].prefix}`}><div style={{display:'flex',justifyContent:'space-between',gap:10}}><h2 style={{fontSize:20,margin:0}}>{t(department,lang)}</h2><span style={{color:'#b4cbd1'}}>{meta.room}</span></div><div style={{marginTop:22,fontSize:15,color:'#b4cbd1'}}>{speech==='hi'?'अभी बुला रहे हैं':'NOW CALLING'}</div><div className="tv-token" data-testid={`board-current-${departmentMeta[department].prefix}`}>{current?.token??'—'}</div>{current&&<button className="btn btn-small" style={{marginTop:8}} onClick={()=>announce(current.token,meta.room)} data-testid={`button-announce-${current.id}`}><Volume2 size={16}/>{speech==='hi'?'घोषणा करें':'Announce'}</button>}
+   <div style={{borderTop:'1px solid #355869',marginTop:20,paddingTop:16}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:12}}><strong>Next tokens / अगले टोकन</strong><span style={{color:'#bdd1d7'}}>Delay {state.delays[department]||0} min</span></div>{[0,1,2].map(i=><div key={i} style={{display:'flex',justifyContent:'space-between',padding:'9px 0',borderBottom:'1px solid #29495a',fontSize:19}}><span style={{color:'#b6cbd2'}}>#{i+1}</span><strong>{next[i]?.token??'—'}</strong></div>)}</div>
+  </section>;})}</div>
+  <div className="notice notice-red" style={{maxWidth:1600,margin:'24px auto 0'}}><Siren size={22}/><span><strong>Emergency / Casualty · आपातकालीन विभाग</strong><br/>Ask hospital staff now. Do not wait for registration or a token. Call 112 or 108.</span></div>
+ </div>;
+}
+
+function Router({state,update,lang,setLang}:{state:HospitalState;update:(fn:(s:HospitalState)=>HospitalState)=>void;lang:Lang;setLang:(l:Lang)=>void}) {
+ const [path]=useLocation();
+ return <ErrorBoundary resetKey={path}><Shell lang={lang} setLang={setLang}><Switch>
+   <Route path="/"><Home state={state} update={update} lang={lang} setLang={setLang}/></Route>
+   <Route path="/register"><Registration state={state} update={update} lang={lang} setLang={setLang}/></Route>
+   <Route path="/slip"><Slip state={state} update={update} lang={lang} setLang={setLang}/></Route>
+   <Route path="/queue"><Queue state={state} update={update} lang={lang} setLang={setLang}/></Route>
+   <Route path="/navigate"><Navigate state={state} update={update} lang={lang} setLang={setLang}/></Route>
+   <Route path="/assistant"><Assistant state={state} update={update} lang={lang} setLang={setLang}/></Route>
+   <Route path="/staff"><Staff state={state} update={update} lang={lang} setLang={setLang}/></Route>
+   <Route path="/board"><Board state={state} update={update} lang={lang} setLang={setLang}/></Route>
+   <Route component={NotFound}/>
+  </Switch></Shell></ErrorBoundary>;
+}
+function App() {
+ const [state,update]=useHospitalState();const [lang,setLang]=useState<Lang>(()=>localStorage.getItem('opd-language')==='hi'?'hi':'en');
+ const setLanguage=(value:Lang)=>{localStorage.setItem('opd-language',value);setLang(value);};
+ return <QueryClientProvider client={queryClient}><TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/,'')}><Router state={state} update={update} lang={lang} setLang={setLanguage}/></WouterRouter><Toaster/></TooltipProvider></QueryClientProvider>;
+}
+export default App;

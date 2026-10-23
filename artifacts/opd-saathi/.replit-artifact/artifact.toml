@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "OPD Saathi"
+description = "A bilingual, accessible hospital queue and navigation app for City District Hospital. Patients can register, track a simulated OPD queue, find hospital rooms, and get urgent help; staff and waiting-room screens stay synchronized."
+version = "1.0.0"
+id = "artifacts/opd-saathi"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18353
+
+[services.development]
+run = "pnpm --filter @workspace/opd-saathi run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/opd-saathi", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/opd-saathi/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18353"
+BASE_PATH = "/"
