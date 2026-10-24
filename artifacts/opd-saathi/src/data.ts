@@ -94,9 +94,16 @@ export function waitEstimate(state: HospitalState, patient: Patient) {
 }
 
 export function nextPatientToken(patients:Patient[]) {
+  const used=new Set(patients.map(patient=>patient.token.trim().toUpperCase()));
   const largest=patients.reduce((max,patient)=>{
-    const match=/^OPD-(\d+)$/.exec(patient.token);
+    const match=/^OPD-(\d+)$/i.exec(patient.token.trim());
     return match?Math.max(max,Number(match[1])):max;
   },0);
-  return `OPD-${String(largest+1).padStart(3,'0')}`;
+  let sequence=largest+1;
+  let token=`OPD-${String(sequence).padStart(3,'0')}`;
+  while(used.has(token)){
+    sequence+=1;
+    token=`OPD-${String(sequence).padStart(3,'0')}`;
+  }
+  return token;
 }

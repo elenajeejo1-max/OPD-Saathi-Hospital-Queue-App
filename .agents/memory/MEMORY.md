@@ -1,0 +1,1 @@
+- [Isolated browser testing](isolated-browser-testing.md) — use a separate browser profile for localStorage-backed UI tests; preview capture and test browsers do not share saved state.
