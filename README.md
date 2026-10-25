@@ -36,4 +36,5 @@ This repository contains the source code for the OPD Saathi application.
 To make hospital OPD visits more convenient, organized, and patient-friendly.
 
 Live demo Link:[https://replit.com/@elenajeejo1/OPD-Saathi-Hospital-Queue-App](https://opd-saathi-hospital-queue-app--elenajeejo1.replit.app/)
-Screenshots:
+
+
